@@ -1,0 +1,410 @@
+#!/usr/bin/env python3
+"""
+Simulación de Enjambre de Nanocreativones con Visualizaciones de Evolución
+LECN-LLP — Lázaro López Paz
+El Prat de Llobregat, Barcelona, España
+28 de julio de 2026
+"""
+
+import numpy as np
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional
+from numpy.linalg import norm
+import json
+from datetime import datetime, timezone
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+
+# ============================================================
+# Núcleo (simplificado y robusto a partir del formalismo previo)
+# ============================================================
+
+@dataclass
+class NanoCreativonState:
+    psi: np.ndarray = field(default_factory=lambda: np.array([0.95, 0.05, 0.0, 0.0], dtype=np.complex128))
+    style_seed: np.ndarray = field(default_factory=lambda: np.random.randn(32))
+    cooccurrence: np.ndarray = field(default_factory=lambda: np.random.rand(16, 16) * 0.3)
+    num_synapses: int = 100000
+    folding_energy: float = 0.0
+    optical_response: np.ndarray = field(default_factory=lambda: np.zeros(8))
+    n_eff: float = 1.5
+    absorption_peak: float = 1.0
+    non_reciprocity: float = 0.0
+    fitness: float = 0.0
+    phi: float = 0.0
+    generation_born: int = 0
+
+    def __post_init__(self):
+        self.psi = self.psi.astype(np.complex128)
+        self._normalize_psi()
+        self.style_seed = self.style_seed / (norm(self.style_seed) + 1e-12)
+
+    def _normalize_psi(self):
+        n = norm(self.psi)
+        if n > 1e-12:
+            self.psi /= n
+
+    def probabilities(self) -> np.ndarray:
+        return np.abs(self.psi)**2
+
+    def fidelity_to_N4(self) -> float:
+        target = np.array([0, 0, 0, 1], dtype=np.complex128)
+        return float(np.abs(np.vdot(target, self.psi))**2)
+
+
+def quantum_mutation_operator(mu: float, bias_high: float = 0.0) -> np.ndarray:
+    theta = mu * np.pi * (0.3 + 0.7 * np.random.rand())
+    phi = mu * np.pi * (0.3 + 0.7 * np.random.rand())
+
+    def rx4(th):
+        c, s = np.cos(th/2), np.sin(th/2)
+        U = np.eye(4, dtype=np.complex128)
+        U[0,0] = c; U[0,1] = -1j*s
+        U[1,0] = -1j*s; U[1,1] = c
+        return U
+
+    def ry4(th):
+        c, s = np.cos(th/2), np.sin(th/2)
+        U = np.eye(4, dtype=np.complex128)
+        U[0,0] = c; U[0,1] = -s
+        U[1,0] = s; U[1,1] = c
+        return U
+
+    U = ry4(phi) @ rx4(theta)
+
+    if bias_high > 0.05 and np.random.rand() < 0.4:
+        angle = 0.12 * np.pi * bias_high
+        mix = np.eye(4, dtype=np.complex128)
+        c, s = np.cos(angle), np.sin(angle)
+        mix[2,2] = c; mix[2,3] = -s
+        mix[3,2] = s; mix[3,3] = c
+        t = 0.06 * bias_high
+        mix[0,0] = np.sqrt(max(0, 1-t)); mix[0,3] = np.sqrt(t)
+        U = mix @ U
+
+    if np.random.rand() < mu * 1.1:
+        H = (1/np.sqrt(2)) * np.array([
+            [1, 1, 0, 0], [1, -1, 0, 0],
+            [0, 0, 1, 1], [0, 0, 1, -1]
+        ], dtype=np.complex128)
+        U = H @ U
+    return U
+
+
+def plasmid_crossover(p1: NanoCreativonState, p2: NanoCreativonState) -> NanoCreativonState:
+    child = NanoCreativonState()
+    alpha = 0.4 + 0.2 * np.random.rand()
+    child.psi = alpha * p1.psi + (1-alpha) * p2.psi
+    child.psi *= np.exp(1j * np.pi * np.random.rand())
+    child._normalize_psi()
+
+    cut = np.random.randint(8, 24)
+    child.style_seed = np.concatenate([p1.style_seed[:cut], p2.style_seed[cut:]])
+    child.style_seed /= (norm(child.style_seed) + 1e-12)
+
+    beta = np.random.rand()
+    child.cooccurrence = beta * p1.cooccurrence + (1-beta) * p2.cooccurrence
+    child.cooccurrence += np.random.normal(0, 0.01, size=child.cooccurrence.shape)
+    child.cooccurrence = np.clip(child.cooccurrence, 0, 1)
+    child.num_synapses = int(0.5 * (p1.num_synapses + p2.num_synapses))
+    return child
+
+
+def evaluate_molecular_fitness(nano: NanoCreativonState) -> float:
+    probs = nano.probabilities()
+    level_score = 10*probs[0] + 30*probs[1] + 60*probs[2] + 95*probs[3]
+
+    p = nano.cooccurrence.flatten()
+    p = p / (p.sum() + 1e-12)
+    entropy = -np.sum(p * np.log(p + 1e-12))
+    entropy_score = 12 * (entropy / np.log(len(p)))
+
+    folding_score = 8 * np.exp(-0.5 * ((nano.folding_energy + 8)**2) / 25)
+    optical_score = 6 * min(1.0, norm(nano.optical_response) / 2.0)
+
+    meta_score = 0.0
+    if probs[3] > 0.3:
+        meta_score += 10 * max(0, -nano.n_eff)
+        meta_score += 5 * nano.non_reciprocity
+
+    F = level_score + entropy_score + folding_score + optical_score + meta_score + np.random.normal(0, 2.0)
+    F = float(np.clip(F, 0.0, 100.0))
+    nano.fitness = F
+    nano.phi = np.log10(1.0 + F)
+    return F
+
+
+def update_physical_properties(nano: NanoCreativonState):
+    probs = nano.probabilities()
+    nano.n_eff = 1.45 - 2.8 * probs[3] - 0.9 * probs[2] + 0.15 * np.random.randn()
+    nano.absorption_peak = 0.8 + 4.2 * probs[3] + 1.5 * probs[2]
+    nano.non_reciprocity = np.clip(0.1 + 0.85 * (probs[2] + probs[3]) + 0.05*np.random.randn(), 0, 1)
+    nano.folding_energy = -12.0 + 6.0 * (1 - probs[3]) + np.random.normal(0, 1.5)
+    base = np.array([0.2, 0.3, 0.5, 0.7, 0.9, 0.6, 0.4, 0.25])
+    nano.optical_response = base * (0.5 + 1.5 * probs[3]) + np.random.normal(0, 0.08, 8)
+    nano.optical_response = np.clip(nano.optical_response, 0, 2)
+
+
+class NanoCreativonSwarm:
+    def __init__(self, pop_size: int = 48, mu0: float = 0.2):
+        self.pop_size = pop_size
+        self.mu0 = mu0
+        self.population: List[NanoCreativonState] = []
+        self.generation = 0
+        self.history: List[Dict] = []
+        self.best_ever: Optional[NanoCreativonState] = None
+        self.best_phi = -1.0
+
+        for _ in range(pop_size):
+            nano = NanoCreativonState()
+            nano.psi = np.array([0.92, 0.06, 0.015, 0.005], dtype=np.complex128)
+            nano._normalize_psi()
+            update_physical_properties(nano)
+            self.population.append(nano)
+
+    def mutation_rate(self, g: int) -> float:
+        return self.mu0 / np.log10(g + 10)
+
+    def step(self) -> Dict:
+        g = self.generation
+        mu = self.mutation_rate(g)
+
+        fitnesses, phis, fids, neffs = [], [], [], []
+        for nano in self.population:
+            update_physical_properties(nano)
+            F = evaluate_molecular_fitness(nano)
+            fitnesses.append(F)
+            phis.append(nano.phi)
+            fids.append(nano.fidelity_to_N4())
+            neffs.append(nano.n_eff)
+
+        fitnesses = np.array(fitnesses)
+        phis = np.array(phis)
+        fids = np.array(fids)
+        neffs = np.array(neffs)
+
+        n_elite = max(4, self.pop_size // 8)
+        elite_idx = np.argsort(phis)[-n_elite:][::-1]
+        elites = []
+        for i in elite_idx:
+            e = NanoCreativonState(
+                psi=self.population[i].psi.copy(),
+                style_seed=self.population[i].style_seed.copy(),
+                cooccurrence=self.population[i].cooccurrence.copy(),
+                num_synapses=self.population[i].num_synapses,
+                folding_energy=self.population[i].folding_energy,
+                optical_response=self.population[i].optical_response.copy(),
+                n_eff=self.population[i].n_eff,
+                absorption_peak=self.population[i].absorption_peak,
+                non_reciprocity=self.population[i].non_reciprocity,
+                fitness=self.population[i].fitness,
+                phi=self.population[i].phi,
+                generation_born=self.population[i].generation_born
+            )
+            elites.append(e)
+
+        if phis[elite_idx[0]] > self.best_phi:
+            self.best_phi = phis[elite_idx[0]]
+            self.best_ever = elites[0]
+
+        amplified = np.exp(2.5 * (phis - phis.min()))
+        probs_sel = amplified / (amplified.sum() + 1e-12)
+        parent_indices = np.random.choice(len(phis), size=self.pop_size, p=probs_sel)
+
+        new_pop = elites[:]
+        while len(new_pop) < self.pop_size:
+            i1, i2 = np.random.choice(parent_indices, size=2, replace=False)
+            child = plasmid_crossover(self.population[i1], self.population[i2])
+            bias = min(1.0, 0.12 + 0.002 * g + 0.2 * child.phi)
+            U = quantum_mutation_operator(mu, bias_high=bias)
+            child.psi = U @ child.psi
+            child._normalize_psi()
+            if np.random.rand() < mu:
+                child.style_seed += np.random.normal(0, 0.03*mu, size=32)
+                child.style_seed /= (norm(child.style_seed) + 1e-12)
+            if np.random.rand() < mu:
+                child.cooccurrence += np.random.normal(0, 0.012*mu, size=child.cooccurrence.shape)
+                child.cooccurrence = np.clip(child.cooccurrence, 0, 1)
+            child.generation_born = g
+            new_pop.append(child)
+
+        self.population = new_pop[:self.pop_size]
+        self.generation += 1
+
+        stats = {
+            "generation": g,
+            "mu": float(mu),
+            "mean_F": float(fitnesses.mean()),
+            "max_F": float(fitnesses.max()),
+            "mean_phi": float(phis.mean()),
+            "max_phi": float(phis.max()),
+            "mean_fid_N4": float(fids.mean()),
+            "max_fid_N4": float(fids.max()),
+            "mean_n_eff": float(neffs.mean()),
+            "best_n_eff": float(self.best_ever.n_eff) if self.best_ever else 0.0,
+            "best_non_reciprocity": float(self.best_ever.non_reciprocity) if self.best_ever else 0.0,
+        }
+        self.history.append(stats)
+        return stats
+
+    def run(self, max_gen: int = 120, target_fid: float = 0.50) -> Dict:
+        print(f"=== Enjambre de Nanocreativones + Visualizaciones | N={self.pop_size} | MaxGen={max_gen} ===")
+        for g in range(max_gen):
+            stats = self.step()
+            if g % 15 == 0 or g == max_gen-1:
+                print(f"Gen {stats['generation']:3d} | μ={stats['mu']:.4f} | "
+                      f"FidN4={stats['mean_fid_N4']:.3f}/{stats['max_fid_N4']:.3f} | "
+                      f"n_eff(best)={stats['best_n_eff']:.3f}")
+            if stats['mean_fid_N4'] > target_fid and g > 30:
+                recent = [h['mean_fid_N4'] for h in self.history[-5:]]
+                if all(f > target_fid * 0.90 for f in recent):
+                    print(f"*** Criterio de fidelidad alcanzado en generación {g} ***")
+                    break
+        return self.summary()
+
+    def summary(self) -> Dict:
+        if not self.history:
+            return {}
+        last = self.history[-1]
+        best = self.best_ever
+        return {
+            "final_generation": last["generation"],
+            "final_mean_fid_N4": last["mean_fid_N4"],
+            "final_max_fid_N4": last["max_fid_N4"],
+            "final_max_phi": last["max_phi"],
+            "best_n_eff": float(best.n_eff) if best else None,
+            "best_absorption_peak": float(best.absorption_peak) if best else None,
+            "best_non_reciprocity": float(best.non_reciprocity) if best else None,
+            "best_level_probs": best.probabilities().tolist() if best else None,
+            "best_folding_energy": float(best.folding_energy) if best else None
+        }
+
+
+def generate_visualizations(swarm: NanoCreativonSwarm, out_dir: str):
+    hist = swarm.history
+    gens = [h["generation"] for h in hist]
+    mean_fid = [h["mean_fid_N4"] for h in hist]
+    max_fid = [h["max_fid_N4"] for h in hist]
+    mean_phi = [h["mean_phi"] for h in hist]
+    max_phi = [h["max_phi"] for h in hist]
+    best_neff = [h["best_n_eff"] for h in hist]
+    mean_neff = [h["mean_n_eff"] for h in hist]
+    mu_vals = [h["mu"] for h in hist]
+    best_nr = [h["best_non_reciprocity"] for h in hist]
+
+    plt.rcParams.update({
+        "font.size": 9,
+        "axes.titlesize": 11,
+        "axes.labelsize": 9,
+        "figure.facecolor": "white",
+        "axes.facecolor": "#f8fafc",
+        "axes.grid": True,
+        "grid.alpha": 0.35,
+    })
+
+    fig = plt.figure(figsize=(12, 9))
+    gs = GridSpec(3, 2, figure=fig, hspace=0.35, wspace=0.28)
+
+    # 1. Fidelidad a N4
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.plot(gens, mean_fid, color="#2b6cb0", lw=1.8, label="Media")
+    ax1.plot(gens, max_fid, color="#c53030", lw=1.5, ls="--", label="Máxima")
+    ax1.axhline(0.5, color="#718096", ls=":", lw=1, label="Umbral 0.50")
+    ax1.set_ylabel("Fidelidad a |N4⟩")
+    ax1.set_title("Evolución de la Fidelidad a N4")
+    ax1.legend(loc="lower right", fontsize=8)
+    ax1.set_ylim(-0.02, 1.05)
+
+    # 2. Índice de refracción efectivo
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.plot(gens, best_neff, color="#c05621", lw=1.8, label="Mejor individuo")
+    ax2.plot(gens, mean_neff, color="#2b6cb0", lw=1.2, alpha=0.7, label="Media población")
+    ax2.axhline(0, color="#718096", ls=":", lw=1)
+    ax2.set_ylabel(r"$n_{\mathrm{eff}}$")
+    ax2.set_title("Índice de Refracción Efectivo")
+    ax2.legend(loc="upper right", fontsize=8)
+
+    # 3. Presión selectiva Φ
+    ax3 = fig.add_subplot(gs[1, 0])
+    ax3.plot(gens, mean_phi, color="#2b6cb0", lw=1.6, label="Media Φ")
+    ax3.plot(gens, max_phi, color="#c53030", lw=1.4, ls="--", label="Máxima Φ")
+    ax3.set_ylabel("Φ = log₁₀(1+F)")
+    ax3.set_title("Presión Selectiva Logarítmica")
+    ax3.legend(loc="lower right", fontsize=8)
+
+    # 4. Tasa de mutación μ(g)
+    ax4 = fig.add_subplot(gs[1, 1])
+    ax4.plot(gens, mu_vals, color="#553c9a", lw=1.8)
+    ax4.set_ylabel("μ(g)")
+    ax4.set_title("Tasa de Mutación Logarítmica")
+    ax4.set_xlabel("Generación")
+
+    # 5. No-reciprocidad del mejor
+    ax5 = fig.add_subplot(gs[2, 0])
+    ax5.plot(gens, best_nr, color="#276749", lw=1.8)
+    ax5.set_ylabel("No-reciprocidad")
+    ax5.set_xlabel("Generación")
+    ax5.set_title("No-reciprocidad del Mejor Individuo")
+    ax5.set_ylim(0, 1.05)
+
+    # 6. Resumen de probabilidades finales del mejor
+    ax6 = fig.add_subplot(gs[2, 1])
+    if swarm.best_ever is not None:
+        probs = swarm.best_ever.probabilities()
+        labels = ["N1", "N2", "N3", "N4"]
+        colors = ["#a0aec0", "#63b3ed", "#48bb78", "#c53030"]
+        bars = ax6.bar(labels, probs, color=colors, edgecolor="black", linewidth=0.6)
+        ax6.set_ylim(0, 1.0)
+        ax6.set_ylabel("Probabilidad")
+        ax6.set_title("Distribución de Niveles del Mejor Individuo")
+        for bar, p in zip(bars, probs):
+            ax6.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+                     f"{p:.3f}", ha="center", va="bottom", fontsize=8)
+
+    fig.suptitle("LECN-LLP — Evolución del Enjambre de Nanocreativones\n"
+                 "Lázaro López Paz · El Prat de Llobregat, Barcelona, España · 28 jul 2026",
+                 fontsize=12, fontweight="bold", color="#1a365d", y=0.98)
+
+    out_path = f"{out_dir}/nanocreativon_evolucion.png"
+    fig.savefig(out_path, dpi=160, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Visualización guardada: {out_path}")
+    return out_path
+
+
+if __name__ == "__main__":
+    np.random.seed(42)
+    out_dir = "/home/workdir/artifacts/LECN_LLP_Unificado/nanocreativones"
+
+    swarm = NanoCreativonSwarm(pop_size=48, mu0=0.2)
+    summary = swarm.run(max_gen=120, target_fid=0.50)
+
+    print("\n" + "="*60)
+    print("RESUMEN FINAL")
+    print("="*60)
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+
+    # Guardar reporte actualizado
+    report = {
+        "titulo": "Simulación de Enjambre de Nanocreativones con Visualizaciones — LECN-LLP",
+        "fecha": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "autor": "Lázaro López Paz",
+        "origen": "El Prat de Llobregat, Barcelona, España",
+        "resultados": summary,
+        "notas": [
+            "Formalismo híbrido: estado cuántico de niveles + parámetros moleculares + propiedades físicas emergentes.",
+            "Cruce implementado como intercambio de plásmidos + entrelazamiento aproximado.",
+            "Mutación mediante operadores unitarios modulados por tasa logarítmica μ(g).",
+            "Fitness combina nivel creativo, entropía estructural, plegado y propiedades metamateriales.",
+            "El índice de refracción efectivo tiende a valores negativos en alta fidelidad a N4.",
+            "Visualizaciones generadas: fidelidad N4, n_eff, Φ, μ(g), no-reciprocidad y distribución de niveles."
+        ]
+    }
+    with open(f"{out_dir}/nanocreativon_report.json", "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+
+    # Generar figuras
+    img_path = generate_visualizations(swarm, out_dir)
+    print(f"\nArchivos generados en: {out_dir}")
