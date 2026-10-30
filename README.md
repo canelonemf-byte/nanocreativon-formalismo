@@ -1,34 +1,48 @@
 # nanocreativon-formalismo
 
-Nanocreativón: formalismo, block-encoding LCU y números de winding (SSH, Hatano-Nelson).
+# nanocreativon-formalismo  Nanocreativón: formalismo, block-encoding LCU y números de winding (SSH, Hatano-Nelson).  **Autor:** Lázaro López Paz · **Licencia:** MIT (ver `LICENSE`)
 
-**Autor:** Lázaro López Paz · **Licencia:** MIT (ver `LICENSE`)
+## Autoría
 
-## Carpetas de origen en Google Drive
+- **Autor:** Lázaro López Paz, El Prat de Llobregat, Barcelona, España
+- **ORCID:** [0000-0001-8601-1963](https://orcid.org/0000-0001-8601-1963)
+- Elaborado con asistencia de inteligencia artificial
+- Sin afiliaciones institucionales
 
-- https://drive.google.com/drive/folders/1DJwteShZFr1yh4ei08M2W4SbIDOSsqH5
+## Estado
 
-## Archivos incluidos
+Proyecto en desarrollo / documentación. No afirmar validación experimental salvo que el código o los informes del propio repositorio lo demuestren.
 
-- `docs/nanocreativon_report.md` ← nanocreativon_report.pdf
-- `lcu_block_encoding.py` ← lcu_block_encoding.py
-- `nanocreativon_formalismo.py` ← nanocreativon_formalismo.py
-- `nanocreativon_report.json` ← nanocreativon_report.json
-- `simular_con_visualizaciones.py` ← simular_con_visualizaciones.py
-- `winding_number_hatano_nelson.py` ← winding_number_hatano_nelson.py
-- `winding_number_ssh.py` ← winding_number_ssh.py
+## Contenido (raíz)
 
-## Pendiente: en Drive
+```
+__pycache__/
+docs/
+lcu_block_encoding.py
+LICENSE
+nanocreativon_formalismo.py
+nanocreativon_report.json
+README.md
+REFERENCIAS.md
+simular_con_visualizaciones.py
+winding_number_hatano_nelson.py
+winding_number_ssh.py
+```
 
-Archivos binarios (presentaciones, PDFs grandes, vídeos, imágenes, zips, docx) que no se pudieron pasar a texto. Siguen en Drive:
+## Instalación
 
-- 2 SIN AUDIO.mp4 · pendiente: en Drive · https://drive.google.com/file/d/1uHMTJGwjyL24auqw-jctXIdxyIuffOng/view?usp=drivesdk
-- NfYYh.png · pendiente: en Drive · https://drive.google.com/file/d/1DAIqvqKcz95BeoAAMh8I19Mx7Edp4jwp/view?usp=drivesdk
-- grok-video-f4e3931e-3a9a-4105-aa70-8d782b014610.mp4 · pendiente: en Drive · https://drive.google.com/file/d/1cn-75GZUXiMfR8jhCz1AY0pY7onYnC-j/view?usp=drivesdk
-- rMdct.png · pendiente: en Drive · https://drive.google.com/file/d/18X-Ewj0iUPlImb2m18fs7FH4FX-Uky77/view?usp=drivesdk
+Ver archivos del repositorio; puede no requerir instalación.
 
----
-Los archivos `.trashed-*`, las copias («- copia») y los duplicados entre carpetas no se han listado.
+## Uso
 
-## Referencias
-Ver [REFERENCIAS.md](REFERENCIAS.md).
+Archivos Python principales (revisar cada uno antes de ejecutar):
+- `lcu_block_encoding.py`
+- `nanocreativon_formalismo.py`
+- `simular_con_visualizaciones.py`
+- `winding_number_hatano_nelson.py`
+- `winding_number_ssh.py`
+
+
+## Licencia
+
+Ver archivo `LICENSE` (o `LICENSE.md`) en la raíz. Documentación bajo CC BY 4.0 cuando aplique; código habitualmente MIT, salvo indicación contraria.
