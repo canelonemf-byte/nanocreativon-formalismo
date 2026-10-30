@@ -21,3 +21,8 @@ build/
 .vscode/
 node_modules/
 target/
+
+artifacts/
+.venv_fix/
+.venv_verify/
+.reqs_light.txt

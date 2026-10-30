@@ -1,3 +1,4 @@
+from pathlib import Path
 #!/usr/bin/env python3
 """
 Formalismo Matemático y Protocolo de Simulación de Nanocreativones
@@ -297,6 +298,9 @@ if __name__ == "__main__":
             "El índice de refracción efectivo tiende a valores negativos en alta fidelidad a N4."
         ]
     }
-    with open("/home/workdir/artifacts/LECN_LLP_Unificado/nanocreativones/nanocreativon_report.json", "w", encoding="utf-8") as f:
+    # ensure output dir
+    Path(__file__).resolve().parent.joinpath("artifacts").mkdir(parents=True, exist_ok=True)
+    (Path(__file__).resolve().parent / "artifacts" / "LECN_LLP_Unificado" / "nanocreativones").mkdir(parents=True, exist_ok=True)
+    with open(str(Path(__file__).resolve().parent / "artifacts" / "LECN_LLP_Unificado" / "nanocreativones" / "nanocreativon_report.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     print("\nReporte guardado en nanocreativon_report.json")

@@ -95,7 +95,8 @@ if __name__ == "__main__":
         results.append((t_R, t_L, W, desc))
 
     # Visualización
-    out_dir = Path("/home/workdir/artifacts/LECN_LLP_Unificado/nanocreativones")
+    out_dir = (Path(__file__).resolve().parent / "artifacts" / "LECN_LLP_Unificado" / "nanocreativones")
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(2, 3, figsize=(12, 8))
     axes = axes.flatten()
 

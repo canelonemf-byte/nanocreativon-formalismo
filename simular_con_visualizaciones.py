@@ -1,3 +1,4 @@
+from pathlib import Path
 #!/usr/bin/env python3
 """
 Simulación de Enjambre de Nanocreativones con Visualizaciones de Evolución
@@ -376,7 +377,8 @@ def generate_visualizations(swarm: NanoCreativonSwarm, out_dir: str):
 
 if __name__ == "__main__":
     np.random.seed(42)
-    out_dir = "/home/workdir/artifacts/LECN_LLP_Unificado/nanocreativones"
+    out_dir = str(Path(__file__).resolve().parent / "artifacts" / "LECN_LLP_Unificado" / "nanocreativones")
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     swarm = NanoCreativonSwarm(pop_size=48, mu0=0.2)
     summary = swarm.run(max_gen=120, target_fid=0.50)
